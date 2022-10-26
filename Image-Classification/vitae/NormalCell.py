@@ -7,6 +7,8 @@ import numpy as np
 from timm.models.layers import DropPath
 import math
 
+from .mymlp import MonarchMlp, MonarchAttention
+
 class Mlp(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
         super().__init__()
@@ -100,12 +102,14 @@ class AttentionPerformer(nn.Module):
 
 class NormalCell(nn.Module):
     def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False, qk_scale=None, drop=0., attn_drop=0.,
-                drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm, class_token=False, group=64, tokens_type='transformer'):
+                drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm, class_token=False, group=64, tokens_type='transformer', mlp_type='Mlp'):
         super().__init__()
         self.norm1 = norm_layer(dim)
         self.class_token = class_token
         if 'transformer' in tokens_type:
-            self.attn = Attention(
+            # self.attn = Attention(
+            #     dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
+            self.attn = MonarchAttention(
                 dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
         elif 'performer' in tokens_type:
             self.attn = AttentionPerformer(
@@ -113,7 +117,8 @@ class NormalCell(nn.Module):
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         self.norm2 = norm_layer(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
-        self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
+        # self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
+        self.mlp = MonarchMlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
         if 'shallow' in tokens_type:
             self.PCM = nn.Sequential(
                             nn.Conv2d(dim, mlp_hidden_dim, 3, 1, 1, 1, group),
@@ -134,6 +139,8 @@ class NormalCell(nn.Module):
                                 )
 
     def forward(self, x):
+        # print("normal cell, x shape is",x.shape)
+        # # 64, 196, 256
         b, n, c = x.shape
         if self.class_token:
             n = n - 1
@@ -146,5 +153,9 @@ class NormalCell(nn.Module):
             convX = self.drop_path(self.PCM(x.view(b, wh, wh, c).permute(0, 3, 1, 2).contiguous()).permute(0, 2, 3, 1).contiguous().view(b, n, c))
             x = x + self.drop_path(self.attn(self.norm1(x)))
             x = x + convX
+        # print(x.shape)
+        # norm2 = self.norm2(x)
+        # print(norm2)
+        # print(norm2.shape)
         x = x + self.drop_path(self.mlp(self.norm2(x)))
         return x

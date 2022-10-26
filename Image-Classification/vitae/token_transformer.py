@@ -5,6 +5,15 @@ import torch.nn as nn
 from timm.models.layers import DropPath
 from .NormalCell import Mlp
 
+import torch
+import torch.nn.functional as F
+import math
+from einops import rearrange
+import hydra
+
+from .src.ops.butterfly_factor import butterfly_factor_to_matrix
+from .src.models.layers.monarch_linear import MonarchLinear
+
 class Attention(nn.Module):
     def __init__(self, dim, num_heads=8, in_dim = None, qkv_bias=False, qk_scale=None, attn_drop=0., proj_drop=0.):
         super().__init__()
@@ -37,13 +46,47 @@ class Attention(nn.Module):
 
         return x
 
+class MonarchAttention(nn.Module):
+    def __init__(self, dim, num_heads=8, in_dim = None, qkv_bias=False, qk_scale=None, attn_drop=0., proj_drop=0.):
+        super().__init__()
+        self.num_heads = num_heads
+        self.in_dim = in_dim
+        head_dim = in_dim // num_heads
+        self.scale = qk_scale or head_dim ** -0.5
+
+        self.qkv = MonarchLinear(dim, in_dim * 3, bias=qkv_bias, nblocks=4)
+        self.attn_drop = nn.Dropout(attn_drop)
+        self.proj = MonarchLinear(in_dim, in_dim, nblocks=4)
+        self.proj_drop = nn.Dropout(proj_drop)
+
+    def forward(self, x):
+        B, N, C = x.shape
+
+        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.in_dim // self.num_heads).permute(2, 0, 3, 1, 4)
+        q, k, v = qkv[0], qkv[1], qkv[2]
+
+        attn = (q @ k.transpose(-2, -1)) * self.scale
+        attn = attn.softmax(dim=-1)
+        attn = self.attn_drop(attn)
+
+        x = (attn @ v).transpose(1, 2).reshape(B, N, self.in_dim)
+        x = self.proj(x)
+        x = self.proj_drop(x)
+        v = v.permute(0, 2, 1, 3).view(B, N, self.in_dim).contiguous()
+        # skip connection
+        x = v + x   # because the original x has different size with current x, use v to do skip connection
+
+        return x
+
 class Token_transformer(nn.Module):
 
     def __init__(self, dim, in_dim, num_heads, mlp_ratio=1., qkv_bias=False, qk_scale=None, drop=0., attn_drop=0.,
                  drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm):
         super().__init__()
         self.norm1 = norm_layer(dim)
-        self.attn = Attention(
+        # self.attn = Attention(
+        #     dim, in_dim=in_dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
+        self.attn = MonarchAttention(
             dim, in_dim=in_dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         self.norm2 = norm_layer(in_dim)
