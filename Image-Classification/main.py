@@ -244,6 +244,14 @@ parser.add_argument('--RA', action='store_true', default=False,
                     help='use the repeated augmentation')
 parser.add_argument('--ZIP', action='store_true', default=False,
                     help='whether to load data from zip file')
+
+
+# Monarch Optimization
+parser.add_argument('--replace-mlp', action='store_true', default=False,
+                    help='whether to replace mlp with monarch')
+parser.add_argument('--replace-attn', action='store_true', default=False,
+                    help='whether to replace attention projection with monarch')                    
+
 try:
     from apex import amp
     from apex.parallel import DistributedDataParallel as ApexDDP
