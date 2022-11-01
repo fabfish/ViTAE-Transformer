@@ -11,7 +11,7 @@ class Token_performer(nn.Module):
     def __init__(self, dim, in_dim, head_cnt=1, kernel_ratio=0.5, dp1=0.1, dp2 = 0.1):
         super().__init__()
         self.emb = in_dim * head_cnt # we use 1, so it is no need here
-        self.kqv = nn.Linear(dim, 3 * self.emb)
+        self.kqv = nn.Linear(dim, 3 * self.emb) # 3, 64
         self.dp = nn.Dropout(dp1)
         self.proj = nn.Linear(self.emb, self.emb)
         self.head_cnt = head_cnt
@@ -26,7 +26,7 @@ class Token_performer(nn.Module):
             nn.Linear(1 * self.emb, self.emb),
             nn.Dropout(dp2),
         )
-
+        
         self.m = int(self.emb * kernel_ratio)
         self.w = torch.randn(self.m, self.emb)
         self.w = nn.Parameter(nn.init.orthogonal_(self.w) * math.sqrt(self.m), requires_grad=False)
