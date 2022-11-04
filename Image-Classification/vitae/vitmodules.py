@@ -10,7 +10,7 @@ from .ReductionCell import ReductionCell
 class BasicLayer(nn.Module):
     def __init__(self, img_size=224, in_chans=3, embed_dims=64, token_dims=64, downsample_ratios=4, kernel_size=7, RC_heads=1, NC_heads=6, dilations=[1, 2, 3, 4],
                 RC_op='cat', RC_tokens_type='performer', NC_tokens_type='transformer', RC_group=1, NC_group=64, NC_depth=2, dpr=0.1, mlp_ratio=4., qkv_bias=True, 
-                qk_scale=None, drop=0, attn_drop=0., norm_layer=nn.LayerNorm, class_token=False):
+                qk_scale=None, drop=0, attn_drop=0., norm_layer=nn.LayerNorm, class_token=False, NC_mlp_type='mlp', NC_attn_type='mlp'):
         super().__init__()
         self.img_size = img_size
         self.in_chans = in_chans
@@ -27,6 +27,10 @@ class BasicLayer(nn.Module):
         self.RC_group = RC_group
         self.NC_group = NC_group
         self.NC_depth = NC_depth
+        # add mlp type
+        self.NC_mlp_type = NC_mlp_type
+        self.NC_attn_type = NC_attn_type
+
         if downsample_ratios > 1:
             self.RC = ReductionCell(img_size, in_chans, embed_dims, token_dims, downsample_ratios, kernel_size,
                             RC_heads, dilations, op=RC_op, tokens_type=RC_tokens_type, group=RC_group)
@@ -34,7 +38,8 @@ class BasicLayer(nn.Module):
             self.RC = nn.Identity()
         self.NC = nn.ModuleList([
             NormalCell(token_dims, NC_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale, drop=drop, attn_drop=attn_drop,
-                       drop_path=dpr[i] if isinstance(dpr, list) else dpr, norm_layer=norm_layer, class_token=class_token, group=NC_group, tokens_type=NC_tokens_type)
+                       drop_path=dpr[i] if isinstance(dpr, list) else dpr, norm_layer=norm_layer, class_token=class_token, group=NC_group, tokens_type=NC_tokens_type, 
+                       mlp_type=NC_mlp_type, attn_type=NC_attn_type)
         for i in range(NC_depth)])
 
     def forward(self, x):
@@ -44,11 +49,28 @@ class BasicLayer(nn.Module):
         return x
 
 class ViTAE_ViT_basic(nn.Module):
+    """
+        model = create_model(
+        args.model,
+        pretrained=args.pretrained,
+        num_classes=args.num_classes,
+        drop_rate=args.drop,
+        drop_connect_rate=args.drop_connect,  # DEPRECATED, use drop_path
+        drop_path_rate=args.drop_path,
+        drop_block_rate=args.drop_block,
+        global_pool=args.gp,
+        bn_tf=args.bn_tf,
+        bn_momentum=args.bn_momentum,
+        bn_eps=args.bn_eps,
+        checkpoint_path=args.initial_checkpoint,
+        img_size=args.img_size)
+    """
     def __init__(self, img_size=224, in_chans=3, stages=4, embed_dims=64, token_dims=64, downsample_ratios=[4, 2, 2, 2], kernel_size=[7, 3, 3, 3], 
                 RC_heads=[1, 1, 1, 1], NC_heads=4, dilations=[[1, 2, 3, 4], [1, 2, 3], [1, 2], [1, 2]],
                 RC_op='cat', RC_tokens_type=['performer', 'transformer', 'transformer', 'transformer'], NC_tokens_type='transformer',
                 RC_group=[1, 1, 1, 1], NC_group=[1, 32, 64, 64], NC_depth=[2, 2, 6, 2], mlp_ratio=4., qkv_bias=True, qk_scale=None, drop_rate=0., 
-                attn_drop_rate=0., drop_path_rate=0., norm_layer=partial(nn.LayerNorm, eps=1e-6), num_classes=1000, class_token=False):
+                attn_drop_rate=0., drop_path_rate=0., norm_layer=partial(nn.LayerNorm, eps=1e-6), num_classes=1000, class_token=False,
+                NC_mlp_type='mlp', NC_attn_type='mlp'):
         super().__init__()
         self.num_classes = num_classes
         self.stages = stages
@@ -76,6 +98,11 @@ class ViTAE_ViT_basic(nn.Module):
         if class_token:
             self.fc_norm = norm_layer(token_dims[-1])
         self.pos_drop = nn.Dropout(p=drop_rate)
+
+        # fish
+        self.NC_mlp_type = NC_mlp_type
+        self.NC_attn_type = NC_attn_type
+
         depth = np.sum(self.NC_depth)
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
         Layers = []
@@ -86,7 +113,8 @@ class ViTAE_ViT_basic(nn.Module):
                 self.kernel_size[i], self.RC_heads[i], self.NC_heads[i], self.dilaions[i], self.RC_op[i],
                 self.RC_tokens_type[i], self.NC_tokens_type[i], self.RC_group[i], self.NC_group[i], self.NC_depth[i], dpr[startDpr:self.NC_depth[i]+startDpr],
                 mlp_ratio=self.mlp_ratio[i], qkv_bias=self.qkv_bias[i], qk_scale=self.qk_scale[i], drop=self.drop[i], attn_drop=self.attn_drop[i],
-                norm_layer=self.norm_layer[i], class_token=class_token)
+                norm_layer=self.norm_layer[i], class_token=class_token,
+                NC_mlp_type=self.NC_mlp_type, NC_attn_type = self.NC_attn_type)
             )
             img_size = img_size // self.downsample_ratios[i]
             in_chans = self.tokens_dims[i]
