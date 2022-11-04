@@ -659,7 +659,7 @@ def main():
         # currently only mlp monarch 2 d is supported
         sparse_epoch = int(start_epoch+0.7*(num_epochs-start_epoch))
         if args.s2ddebug:
-            sparse_epoch = 1
+            sparse_epoch = 9
 
         try:  # train the model
             for epoch in range(start_epoch, sparse_epoch):
