@@ -117,8 +117,8 @@ parser.add_argument('--warmup-lr', type=float, default=1e-6, metavar='LR',
                     help='warmup learning rate (default: 0.0001)')
 parser.add_argument('--min-lr', type=float, default=1e-5, metavar='LR',
                     help='lower lr bound for cyclic schedulers that hit 0 (1e-5)')
-parser.add_argument('--epochs', type=int, default=10, metavar='N',
-                    help='number of epochs to train (default: 10)')
+parser.add_argument('--epochs', type=int, default=300, metavar='N',
+                    help='number of epochs to train (default: 300)')
 parser.add_argument('--start-epoch', default=None, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
 parser.add_argument('--decay-epochs', type=float, default=30, metavar='N',
@@ -257,6 +257,8 @@ parser.add_argument('--replace-attn', action='store_true', default=False,
 # fish: add s2d
 parser.add_argument('--s2d', action='store_true', default=False,
                     help='whether to replace monarch with mlp')    
+parser.add_argument('--s2ddebug', action='store_true', default=False,
+                    help='whether debugging')                       
                     
 try:
     from apex import amp
@@ -656,6 +658,9 @@ def main():
     elif args.s2d:
         # currently only mlp monarch 2 d is supported
         sparse_epoch = int(start_epoch+0.7*(num_epochs-start_epoch))
+        if args.s2ddebug:
+            sparse_epoch = 1
+
         try:  # train the model
             for epoch in range(start_epoch, sparse_epoch):
                 if args.distributed:
@@ -836,7 +841,7 @@ def main():
                 f.write(args_text)
         
         try:  # train the model
-            for epoch in range(sparse_epoch+1, num_epochs):
+            for epoch in range(sparse_epoch, num_epochs):
                 if args.distributed:
                     loader_train.sampler.set_epoch(epoch)
 
