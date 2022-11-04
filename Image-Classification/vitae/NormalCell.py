@@ -102,7 +102,8 @@ class AttentionPerformer(nn.Module):
 
 class NormalCell(nn.Module):
     def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False, qk_scale=None, drop=0., attn_drop=0.,
-                drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm, class_token=False, group=64, tokens_type='transformer', mlp_type='mlp'):
+                drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm, class_token=False, group=64, tokens_type='transformer', 
+                mlp_type='mlp', attn_type='mlp'):
         super().__init__()
         self.norm1 = norm_layer(dim)
         self.class_token = class_token
