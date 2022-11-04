@@ -721,7 +721,7 @@ def main():
             checkpoint_path=args.initial_checkpoint,
             img_size=args.img_size,
             # fish:
-            NC_mlp_type='mlp'
+            NC_mlp_type='mlp',
             NC_attn_type='mlp'
             )
 
