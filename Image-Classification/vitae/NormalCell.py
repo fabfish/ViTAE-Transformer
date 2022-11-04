@@ -157,9 +157,9 @@ class NormalCell(nn.Module):
             convX = self.drop_path(self.PCM(x.view(b, wh, wh, c).permute(0, 3, 1, 2).contiguous()).permute(0, 2, 3, 1).contiguous().view(b, n, c))
             x = x + self.drop_path(self.attn(self.norm1(x)))
             x = x + convX
-        print(x.shape)
-        norm2 = self.norm2(x)
-        # print(norm2)
-        print(norm2.shape)
+        # print(x.shape)
+        # norm2 = self.norm2(x)
+        # # print(norm2)
+        # print(norm2.shape)
         x = x + self.drop_path(self.mlp(self.norm2(x)))
         return x
