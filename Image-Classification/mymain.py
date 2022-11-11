@@ -252,7 +252,9 @@ parser.add_argument('--ZIP', action='store_true', default=False,
 parser.add_argument('--replace-mlp', action='store_true', default=False,
                     help='whether to replace mlp with monarch')
 parser.add_argument('--replace-attn', action='store_true', default=False,
-                    help='whether to replace attention projection with monarch')                    
+                    help='whether to replace attention projection with monarch') 
+parser.add_argument('--flashattention', action='store_true', default=False,
+                    help='whether to replace attention with flashattention')                     
 
 # fish: add s2d
 parser.add_argument('--s2d', action='store_true', default=False,
@@ -331,6 +333,8 @@ def main():
 
     if args.replace_attn:
         NC_attn_type = 'monarch'
+        if args.flashattention:
+            NC_attn_type = 'flashattention'
     else:
         NC_attn_type = 'mlp'
 

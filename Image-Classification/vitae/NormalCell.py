@@ -8,6 +8,7 @@ from timm.models.layers import DropPath
 import math
 
 from .mymlp import MonarchMlp, MonarchAttention
+from .src.models.modules.mha import MHA
 
 class Mlp(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
@@ -114,6 +115,16 @@ class NormalCell(nn.Module):
             elif attn_type == 'monarch':
                 self.attn = MonarchAttention(
                     dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
+            elif attn_type == 'flashattention':
+                self.attn = MHA(
+                    embed_dim=dim, 
+                    num_heads=num_heads, 
+                    # qkv_bias=qkv_bias, 
+                    softmax_scale=qk_scale, 
+                    dropout=attn_drop, 
+                    use_flash_attn=True
+                    # proj_drop=drop
+                    )
         elif 'performer' in tokens_type:
             self.attn = AttentionPerformer(
                 dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
