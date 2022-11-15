@@ -256,6 +256,11 @@ parser.add_argument('--replace-attn', action='store_true', default=False,
 parser.add_argument('--flashattention', action='store_true', default=False,
                     help='whether to replace attention with flashattention')                     
 
+# ---------- wandb ---------- #
+parser.add_argument('--use_wandb', action='store_true', default=False)
+parser.add_argument('--wandb_project', default='vitae-tiny')
+parser.add_argument('--wandb_name', default=None)
+
 # fish: add s2d
 parser.add_argument('--s2d', action='store_true', default=False,
                     help='whether to replace monarch with mlp')    
