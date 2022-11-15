@@ -21,9 +21,6 @@ import torch.nn as nn
 import torchvision.utils
 from torch.nn.parallel import DistributedDataParallel as NativeDDP
 
-torch.backends.cuda.matmul.allow_tf32 = True
-torch.backends.cudnn.allow_tf32 = True
-
 from timm.data import resolve_data_config, Mixup, FastCollateMixup, AugMixDataset
 from timm.models import load_checkpoint, create_model, convert_splitbn_model
 from timm.utils import *
@@ -34,9 +31,6 @@ from timm.utils import ApexScaler, NativeScaler
 from Utils.samplers import create_loader
 from Utils.dataset import Dataset
 from Utils import build_dataset
-
-import warnings
-warnings.filterwarnings('ignore')
 
 torch.backends.cudnn.benchmark = True
 _logger = logging.getLogger('train')
@@ -262,11 +256,6 @@ parser.add_argument('--replace-attn', action='store_true', default=False,
 parser.add_argument('--flashattention', action='store_true', default=False,
                     help='whether to replace attention with flashattention')                     
 
-# ---------- wandb ---------- #
-parser.add_argument('--use_wandb', action='store_true', default=False)
-parser.add_argument('--wandb_project', default='vitae-tiny')
-parser.add_argument('--wandb_name', default=None)
-
 # fish: add s2d
 parser.add_argument('--s2d', action='store_true', default=False,
                     help='whether to replace monarch with mlp')    
@@ -281,12 +270,6 @@ try:
     has_apex = True
 except ImportError:
     has_apex = False
-
-try:
-    import wandb
-    has_wandb = True
-except ImportError:
-    has_wandb = False
 
 has_native_amp = False
 try:
@@ -313,12 +296,6 @@ def _parse_args():
 def main():
     setup_default_logging()
     args, args_text = _parse_args()
-
-    # ---------------------------  Plus Wandb -------------------------------- #
-    # init wandb
-    if has_wandb and args.local_rank==0 and args.use_wandb:
-        wandb.init(project=args.wandb_project, name=args.wandb_name)
-    # ---------------------------  Plus Wandb -------------------------------- #
 
     args.prefetcher = not args.no_prefetcher
     args.distributed = False
@@ -872,7 +849,7 @@ def main():
                 if args.distributed:
                     loader_train.sampler.set_epoch(epoch)
 
-                train_metrics, train_epoch_time = train_epoch(
+                train_metrics = train_epoch(
                     epoch, model, loader_train, optimizer, train_loss_fn, args,
                     lr_scheduler=lr_scheduler, saver=saver, output_dir=output_dir,
                     amp_autocast=amp_autocast, loss_scaler=loss_scaler, model_ema=model_ema, mixup_fn=mixup_fn)
@@ -882,7 +859,7 @@ def main():
                         _logger.info("Distributing BatchNorm running means and vars")
                     distribute_bn(model, args.world_size, args.dist_bn == 'reduce')
 
-                eval_metrics, test_epoch_time = validate(model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast)
+                eval_metrics = validate(model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast)
 
                 if model_ema is not None and not args.model_ema_force_cpu:
                     if args.distributed and args.dist_bn in ('broadcast', 'reduce'):
@@ -892,19 +869,6 @@ def main():
                     _tmp_dict = OrderedDict([('train_'+k, v) for k,v in eval_metrics.items()])
                     eval_metrics = ema_eval_metrics
                     eval_metrics.update(_tmp_dict)
-                
-                # -------------------- Wandb Log --------------------------- #
-                if args.use_wandb and args.local_rank == 0:
-                    wandb.log({'lr': optimizer.param_groups[0]['lr'], 
-                                'train_loss': train_metrics['loss'], 
-                                'test_loss':  eval_metrics['loss'], 
-                                'top1': eval_metrics['top1'],
-                                'top5': eval_metrics['top5'], 
-                                'epoch_time': train_epoch_time, 
-                                'test_epoch_time': test_epoch_time,
-                                'param_nums': sum([m.numel() for m in model.parameters()])/1000000.0})
-                    wandb.run.summary['max_top1_acc'] = max_top1_acc
-                # -------------------- Wandb Log -------------------------- #
 
                 if lr_scheduler is not None:
                     # step LR for next epoch
@@ -1026,7 +990,7 @@ def train_epoch(
     if hasattr(optimizer, 'sync_lookahead'):
         optimizer.sync_lookahead()
 
-    return OrderedDict([('loss', losses_m.avg)]), (batch_time_m.avg-data_time_m.avg)* len(loader)
+    return OrderedDict([('loss', losses_m.avg)])
 
 
 def validate(model, loader, loss_fn, args, amp_autocast=suppress, log_suffix=''):
@@ -1088,7 +1052,7 @@ def validate(model, loader, loss_fn, args, amp_autocast=suppress, log_suffix='')
                         log_name, batch_idx, last_idx, batch_time=batch_time_m,
                         loss=losses_m, top1=top1_m, top5=top5_m))
 
-    metrics = OrderedDict([('loss', losses_m.avg), ('top1', top1_m.avg), ('top5', top5_m.avg)]), batch_time_m.avg*len(loader)
+    metrics = OrderedDict([('loss', losses_m.avg), ('top1', top1_m.avg), ('top5', top5_m.avg)])
 
     return metrics
 
