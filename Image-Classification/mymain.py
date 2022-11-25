@@ -43,8 +43,15 @@ _logger = logging.getLogger('train')
 
 import utils
 from utils import resume_checkpoint, load_state_dict
+
 # fish:
 from myutils import monarch_to_dense_mlp_NC
+from Utils.mysamplers import my_create_loader
+from Utils.mybase import HybridValPipe, HybridTrainPipe, DALIDataloader
+
+#################################################################
+## finish importing
+#################################################################
 
 # The first arg parser parses out only the --config argument, this argument is used to
 # load a yaml file containing key-values that override the defaults for the main parser below
@@ -278,6 +285,8 @@ parser.add_argument('--s2ddebug', action='store_true', default=False,
 parser.add_argument('--sparse_epoch', default=None, type=int, metavar='N',
                     help='epoch to start s2d convert')
 
+parser.add_argument('--dali', action='store_true', default=False,
+                    help='whether to use dali dataloader')  
 
 try:
     from apex import amp
@@ -521,88 +530,148 @@ def main():
     if args.local_rank == 0:
         _logger.info('Scheduled epochs: {}'.format(num_epochs))
 
-    train_dir = os.path.join(args.data, 'train')
-    if not os.path.exists(train_dir):
-        _logger.error('Training folder does not exist at: {}'.format(train_dir))
-        exit(1)
-    dataset_train = build_dataset(train_dir, idxFilesRoot=args.dataDividePath, ZIP_MODE=args.ZIP)
-
-    collate_fn = None
-    mixup_fn = None
-    mixup_active = args.mixup > 0 or args.cutmix > 0. or args.cutmix_minmax is not None
-    if mixup_active:
-        mixup_args = dict(
-            mixup_alpha=args.mixup, cutmix_alpha=args.cutmix, cutmix_minmax=args.cutmix_minmax,
-            prob=args.mixup_prob, switch_prob=args.mixup_switch_prob, mode=args.mixup_mode,
-            label_smoothing=args.smoothing, num_classes=args.num_classes)
-        if args.prefetcher:
-            assert not num_aug_splits  # collate conflict (need to support deinterleaving in collate mixup)
-            collate_fn = FastCollateMixup(**mixup_args)
-        else:
-            mixup_fn = Mixup(**mixup_args)
-
-    if num_aug_splits > 1:
-        dataset_train = AugMixDataset(dataset_train, num_splits=num_aug_splits)
-
-    train_interpolation = args.train_interpolation
-    if args.no_aug or not train_interpolation:
-        train_interpolation = data_config['interpolation']
-    if args.RA:
-        samplerName = 'RA'
-    else:
-        samplerName = None
-    loader_train = create_loader(
-        dataset_train,
-        input_size=data_config['input_size'],
-        batch_size=args.batch_size,
-        is_training=True,
-        use_prefetcher=args.prefetcher,
-        no_aug=args.no_aug,
-        re_prob=args.reprob,
-        re_mode=args.remode,
-        re_count=args.recount,
-        re_split=args.resplit,
-        scale=args.scale,
-        ratio=args.ratio,
-        hflip=args.hflip,
-        vflip=args.vflip,
-        color_jitter=args.color_jitter,
-        auto_augment=args.aa,
-        num_aug_splits=num_aug_splits,
-        interpolation=train_interpolation,
-        mean=data_config['mean'],
-        std=data_config['std'],
-        num_workers=args.workers,
-        distributed=args.distributed,
-        collate_fn=collate_fn,
-        pin_memory=args.pin_mem,
-        use_multi_epochs_loader=args.use_multi_epochs_loader,
-        sampler=samplerName
-    )
-
-    eval_dir = os.path.join(args.data, 'val')
-    if not os.path.isdir(eval_dir):
-        eval_dir = os.path.join(args.data, 'validation')
-        if not os.path.isdir(eval_dir):
-            _logger.error('Validation folder does not exist at: {}'.format(eval_dir))
+    #############################################################################
+    ## Original train loader starts here
+    #############################################################################
+    if args.dali:
+        train_dir = os.path.join(args.data, 'train')
+        if not os.path.exists(train_dir):
+            _logger.error('Training folder does not exist at: {}'.format(train_dir))
             exit(1)
-    dataset_eval = build_dataset(eval_dir, idxFilesRoot='', ZIP_MODE=False)
+        dataset_train = build_dataset(train_dir, idxFilesRoot=args.dataDividePath, ZIP_MODE=args.ZIP)
 
+        collate_fn = None
+        mixup_fn = None
+        mixup_active = args.mixup > 0 or args.cutmix > 0. or args.cutmix_minmax is not None
+        if mixup_active:
+            mixup_args = dict(
+                mixup_alpha=args.mixup, cutmix_alpha=args.cutmix, cutmix_minmax=args.cutmix_minmax,
+                prob=args.mixup_prob, switch_prob=args.mixup_switch_prob, mode=args.mixup_mode,
+                label_smoothing=args.smoothing, num_classes=args.num_classes)
+            if args.prefetcher:
+                assert not num_aug_splits  # collate conflict (need to support deinterleaving in collate mixup)
+                collate_fn = FastCollateMixup(**mixup_args)
+            else:
+                mixup_fn = Mixup(**mixup_args)
 
-    loader_eval = create_loader(
-        dataset_eval,
-        input_size=data_config['input_size'],
-        batch_size=args.validation_batch_size_multiplier * args.batch_size,
-        is_training=False,
-        use_prefetcher=args.prefetcher,
-        interpolation=data_config['interpolation'],
-        mean=data_config['mean'],
-        std=data_config['std'],
-        num_workers=args.workers,
-        distributed=args.distributed,
-        crop_pct=data_config['crop_pct'],
-        pin_memory=args.pin_mem,
-    )
+        if num_aug_splits > 1:
+            dataset_train = AugMixDataset(dataset_train, num_splits=num_aug_splits)
+
+        train_interpolation = args.train_interpolation
+        if args.no_aug or not train_interpolation:
+            train_interpolation = data_config['interpolation']
+        if args.RA:
+            samplerName = 'RA'
+        else:
+            samplerName = None
+
+        # Original Dataloader
+        # loader_train = create_loader(
+        loader_train = create_loader(    
+            dataset_train,
+            input_size=data_config['input_size'],
+            batch_size=args.batch_size,
+            is_training=True,
+            use_prefetcher=args.prefetcher,
+            no_aug=args.no_aug,
+            re_prob=args.reprob,
+            re_mode=args.remode,
+            re_count=args.recount,
+            re_split=args.resplit,
+            scale=args.scale,
+            ratio=args.ratio,
+            hflip=args.hflip,
+            vflip=args.vflip,
+            color_jitter=args.color_jitter,
+            auto_augment=args.aa,
+            num_aug_splits=num_aug_splits,
+            interpolation=train_interpolation,
+            mean=data_config['mean'],
+            std=data_config['std'],
+            num_workers=args.workers,
+            distributed=args.distributed,
+            collate_fn=collate_fn,
+            pin_memory=args.pin_mem,
+            use_multi_epochs_loader=args.use_multi_epochs_loader,
+            # use_dali_loader=True,
+            sampler=samplerName
+        )
+
+        eval_dir = os.path.join(args.data, 'val')
+        if not os.path.isdir(eval_dir):
+            eval_dir = os.path.join(args.data, 'validation')
+            if not os.path.isdir(eval_dir):
+                _logger.error('Validation folder does not exist at: {}'.format(eval_dir))
+                exit(1)
+        dataset_eval = build_dataset(eval_dir, idxFilesRoot='', ZIP_MODE=False)
+
+        loader_eval = create_loader(
+            dataset_eval,
+            input_size=data_config['input_size'],
+            batch_size=args.validation_batch_size_multiplier * args.batch_size,
+            is_training=False,
+            use_prefetcher=args.prefetcher,
+            interpolation=data_config['interpolation'],
+            mean=data_config['mean'],
+            std=data_config['std'],
+            num_workers=args.workers,
+            distributed=args.distributed,
+            crop_pct=data_config['crop_pct'],
+            pin_memory=args.pin_mem,
+            # use_dali_loader=True,
+        )
+
+    #######################################################################
+
+    else:
+        IMAGENET_MEAN = [0.49139968, 0.48215827, 0.44653124]
+        IMAGENET_STD = [0.24703233, 0.24348505, 0.26158768]
+        IMAGENET_IMAGES_NUM_TRAIN = 1281167
+        IMAGENET_IMAGES_NUM_TEST = 50000
+        TRAIN_BS = 256
+        TEST_BS = 200
+        NUM_WORKERS = 4
+        VAL_SIZE = 256
+        CROP_SIZE = 224
+
+        pip_train = HybridTrainPipe(
+            batch_size=args.batch_size,
+            num_threads=args.workers, 
+            device_id=0, 
+            data_dir=train_dir, 
+            crop=data_config['crop_pct']*data_config['input_size'],
+            world_size=1, 
+            local_rank=0
+        )
+
+        loader_train = DALIDataloader(
+            pipeline=pip_train, 
+            size=IMAGENET_IMAGES_NUM_TRAIN, 
+            batch_size=args.batch_size, 
+            onehot_label=True
+        )
+
+        pip_test = HybridValPipe(
+            batch_size=args.validation_batch_size_multiplier * args.batch_size, 
+            num_threads=args.workers,
+            device_id=0, 
+            data_dir=eval_dir, 
+            crop=data_config['crop_pct']*data_config['input_size'], 
+            size=VAL_SIZE, 
+            world_size=1, 
+            local_rank=0
+        )
+        
+        loader_eval = DALIDataloader(
+            pipeline=pip_test, 
+            size=IMAGENET_IMAGES_NUM_TEST, 
+            batch_size=args.validation_batch_size_multiplier * args.batch_size,
+            onehot_label=True
+        )
+
+    #######################################################################
+    ## finishes
+    #######################################################################
 
     if args.jsd:
         assert num_aug_splits > 1  # JSD only valid with aug splits set
@@ -702,7 +771,7 @@ def main():
 
     elif args.s2d:
         # currently only mlp monarch 2 d is supported
-        if !args.sparse_epoch:
+        if not args.sparse_epoch:
             sparse_epoch = int(start_epoch+0.7*(num_epochs-start_epoch))
         elif args.sparse_epoch<=num_epochs and args.sparse_epoch>=start_epoch:
             sparse_epoch = args.sparse_epoch
