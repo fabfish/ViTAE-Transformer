@@ -624,6 +624,8 @@ def main():
     #######################################################################
 
     else:
+        train_dir = os.path.join(args.data, 'train')
+        val_dir = os.path.join(args.data, 'val')
         IMAGENET_MEAN = [0.49139968, 0.48215827, 0.44653124]
         IMAGENET_STD = [0.24703233, 0.24348505, 0.26158768]
         IMAGENET_IMAGES_NUM_TRAIN = 1281167
@@ -639,14 +641,16 @@ def main():
             num_threads=args.workers, 
             device_id=0, 
             data_dir=train_dir, 
-            crop=data_config['crop_pct']*data_config['input_size'],
+            # crop=data_config['crop_pct']*data_config['input_size'],
+            crop=224,
             world_size=1, 
             local_rank=0
         )
 
         loader_train = DALIDataloader(
             pipeline=pip_train, 
-            size=IMAGENET_IMAGES_NUM_TRAIN, 
+            #size=IMAGENET_IMAGES_NUM_TRAIN, 
+            size=1281167,
             batch_size=args.batch_size, 
             onehot_label=True
         )
@@ -656,7 +660,8 @@ def main():
             num_threads=args.workers,
             device_id=0, 
             data_dir=eval_dir, 
-            crop=data_config['crop_pct']*data_config['input_size'], 
+            # crop=data_config['crop_pct']*data_config['input_size'], 
+            crop=224,
             size=VAL_SIZE, 
             world_size=1, 
             local_rank=0
@@ -664,7 +669,8 @@ def main():
         
         loader_eval = DALIDataloader(
             pipeline=pip_test, 
-            size=IMAGENET_IMAGES_NUM_TEST, 
+            #size=IMAGENET_IMAGES_NUM_TEST, 
+            size=50000,
             batch_size=args.validation_batch_size_multiplier * args.batch_size,
             onehot_label=True
         )
