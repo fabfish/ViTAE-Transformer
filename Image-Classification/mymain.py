@@ -207,7 +207,7 @@ parser.add_argument('--split-bn', action='store_true',
                     help='Enable separate BN layers per augmentation split.')
 
 # Model Exponential Moving Average
-parser.add_argument('--model-ema', action='store_true', default=True,
+parser.add_argument('--model-ema', action='store_true', default=False,
                     help='Enable tracking moving average of model weights')
 parser.add_argument('--model-ema-force-cpu', action='store_true', default=False,
                     help='Force ema to be tracked on CPU, rank=0 node only. Disables EMA validation.')
@@ -264,15 +264,21 @@ parser.add_argument('--flashattention', action='store_true', default=False,
 
 # ---------- wandb ---------- #
 parser.add_argument('--use_wandb', action='store_true', default=False)
-parser.add_argument('--wandb_project', default='vitae-tiny')
+parser.add_argument('--wandb_project', default='vitae-tiny-test')
 parser.add_argument('--wandb_name', default=None)
+parser.add_argument('--wandb_user',action='store',default='woodenchild')
+
+has_native_amp = False
 
 # fish: add s2d
 parser.add_argument('--s2d', action='store_true', default=False,
                     help='whether to replace monarch with mlp')    
 parser.add_argument('--s2ddebug', action='store_true', default=False,
-                    help='whether debugging')                       
-                    
+                    help='whether to print debug logs')                       
+parser.add_argument('--sparse_epoch', default=None, type=int, metavar='N',
+                    help='epoch to start s2d convert')
+
+
 try:
     from apex import amp
     from apex.parallel import DistributedDataParallel as ApexDDP
@@ -317,7 +323,7 @@ def main():
     # ---------------------------  Plus Wandb -------------------------------- #
     # init wandb
     if has_wandb and args.local_rank==0 and args.use_wandb:
-        wandb.init(project=args.wandb_project, name=args.wandb_name)
+        wandb.init(project=args.wandb_project, name=args.wandb_name, entity=args.wandb_user)
     # ---------------------------  Plus Wandb -------------------------------- #
 
     args.prefetcher = not args.no_prefetcher
@@ -642,8 +648,8 @@ def main():
             for epoch in range(start_epoch, num_epochs):
                 if args.distributed:
                     loader_train.sampler.set_epoch(epoch)
-
-                train_metrics = train_epoch(
+                
+                train_metrics, train_epoch_time = train_epoch(
                     epoch, model, loader_train, optimizer, train_loss_fn, args,
                     lr_scheduler=lr_scheduler, saver=saver, output_dir=output_dir,
                     amp_autocast=amp_autocast, loss_scaler=loss_scaler, model_ema=model_ema, mixup_fn=mixup_fn)
@@ -652,8 +658,8 @@ def main():
                     if args.local_rank == 0:
                         _logger.info("Distributing BatchNorm running means and vars")
                     distribute_bn(model, args.world_size, args.dist_bn == 'reduce')
-
-                eval_metrics = validate(model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast)
+                
+                eval_metrics, test_epoch_time = validate(model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast)
 
                 if model_ema is not None and not args.model_ema_force_cpu:
                     if args.distributed and args.dist_bn in ('broadcast', 'reduce'):
@@ -663,6 +669,18 @@ def main():
                     _tmp_dict = OrderedDict([('train_'+k, v) for k,v in eval_metrics.items()])
                     eval_metrics = ema_eval_metrics
                     eval_metrics.update(_tmp_dict)
+                
+                # -------------------- Wandb Log --------------------------- #
+                if args.use_wandb and args.local_rank == 0:
+                    wandb.log({'lr': optimizer.param_groups[0]['lr'], 
+                                'train_loss': train_metrics['loss'], 
+                                'test_loss':  eval_metrics['loss'], 
+                                'top1': eval_metrics['top1'],
+                                'top5': eval_metrics['top5'], 
+                                'epoch_time': train_epoch_time, 
+                                'test_epoch_time': test_epoch_time,
+                                'param_nums': sum([m.numel() for m in model.parameters()])/1000000.0})
+                # -------------------- Wandb Log -------------------------- #
 
                 if lr_scheduler is not None:
                     # step LR for next epoch
@@ -684,16 +702,20 @@ def main():
 
     elif args.s2d:
         # currently only mlp monarch 2 d is supported
-        sparse_epoch = int(start_epoch+0.7*(num_epochs-start_epoch))
+        if !args.sparse_epoch:
+            sparse_epoch = int(start_epoch+0.7*(num_epochs-start_epoch))
+        elif args.sparse_epoch<=num_epochs and args.sparse_epoch>=start_epoch:
+            sparse_epoch = args.sparse_epoch
+
         if args.s2ddebug:
-            sparse_epoch = 9
+            sparse_epoch = 3 
 
         try:  # train the model
             for epoch in range(start_epoch, sparse_epoch):
                 if args.distributed:
                     loader_train.sampler.set_epoch(epoch)
 
-                train_metrics = train_epoch(
+                train_metrics, train_epoch_time = train_epoch(
                     epoch, model, loader_train, optimizer, train_loss_fn, args,
                     lr_scheduler=lr_scheduler, saver=saver, output_dir=output_dir,
                     amp_autocast=amp_autocast, loss_scaler=loss_scaler, model_ema=model_ema, mixup_fn=mixup_fn)
@@ -703,7 +725,7 @@ def main():
                         _logger.info("Distributing BatchNorm running means and vars")
                     distribute_bn(model, args.world_size, args.dist_bn == 'reduce')
 
-                eval_metrics = validate(model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast)
+                eval_metrics, test_epoch_time = validate(model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast)
 
                 if model_ema is not None and not args.model_ema_force_cpu:
                     if args.distributed and args.dist_bn in ('broadcast', 'reduce'):
@@ -713,11 +735,26 @@ def main():
                     _tmp_dict = OrderedDict([('train_'+k, v) for k,v in eval_metrics.items()])
                     eval_metrics = ema_eval_metrics
                     eval_metrics.update(_tmp_dict)
+                
+                # -------------------- Wandb Log --------------------------- #
+                if args.use_wandb and args.local_rank == 0:
+                    wandb.log({'lr': optimizer.param_groups[0]['lr'], 
+                                'train_loss': train_metrics['loss'], 
+                                'test_loss':  eval_metrics['loss'], 
+                                'top1': eval_metrics['top1'],
+                                'top5': eval_metrics['top5'], 
+                                'epoch_time': train_epoch_time, 
+                                'test_epoch_time': test_epoch_time,
+                                'param_nums': sum([m.numel() for m in model.parameters()])/1000000.0})
+                # -------------------- Wandb Log -------------------------- #
 
                 if lr_scheduler is not None:
                     # step LR for next epoch
                     lr_scheduler.step(epoch + 1, eval_metrics[eval_metric])
 
+#                update_summary(
+#                    epoch, train_metrics, eval_metrics, OrderedDict([('trainTime', train_epoch_time)]), os.path.join(output_dir, 'summary.csv'),
+#                    write_header=best_metric is None)
                 update_summary(
                     epoch, train_metrics, eval_metrics, os.path.join(output_dir, 'summary.csv'),
                     write_header=best_metric is None)
@@ -798,7 +835,7 @@ def main():
 
         S2D_flag = 0
         try:
-            monarch_to_dense_mlp_NC(model.state_dict(), new_model.state_dict())
+            new_model.load_state_dict(monarch_to_dense_mlp_NC(model.state_dict(), new_model.state_dict()))
             S2D_flag = 1
         except:
             _logger.error('Failed to Process Model S2D')
@@ -903,13 +940,15 @@ def main():
                                 'epoch_time': train_epoch_time, 
                                 'test_epoch_time': test_epoch_time,
                                 'param_nums': sum([m.numel() for m in model.parameters()])/1000000.0})
-                    wandb.run.summary['max_top1_acc'] = max_top1_acc
                 # -------------------- Wandb Log -------------------------- #
 
                 if lr_scheduler is not None:
                     # step LR for next epoch
                     lr_scheduler.step(epoch + 1, eval_metrics[eval_metric])
 
+#                update_summary(
+#                    epoch, train_metrics, eval_metrics, OrderedDict([('trainTime', train_epoch_time)]), os.path.join(output_dir, 'summary.csv'),
+#                    write_header=best_metric is None)
                 update_summary(
                     epoch, train_metrics, eval_metrics, os.path.join(output_dir, 'summary.csv'),
                     write_header=best_metric is None)

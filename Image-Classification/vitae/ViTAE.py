@@ -24,7 +24,8 @@ default_cfgs = {
 @register_model
 def ViTAE_basic_Tiny(pretrained=False, **kwargs): # adopt performer for tokens to token
     model = ViTAE_ViT_basic(RC_tokens_type=['performer', 'performer', 'performer_less'], NC_tokens_type=['transformer', 'transformer', 'transformer'], stages=3, embed_dims=[64, 64, 128], token_dims=[64, 64, 256], 
-                            downsample_ratios=[4, 2, 2], NC_depth=[0, 0, 7], NC_heads=[1, 1, 4], RC_heads=[1, 1, 1], mlp_ratio=2., NC_group=[1, 1, 64], RC_group=[1, 1, 1], **kwargs)
+                            downsample_ratios=[4, 2, 2], NC_depth=[0, 0, 7], NC_heads=[1, 1, 4], RC_heads=[1, 1, 1], mlp_ratio=2., NC_group=[1, 1, 1], RC_group=[1, 1, 1], **kwargs)
+    # initial NC_group=[1,1,64]
     model.default_cfg = default_cfgs['ViTAE_basic_Tiny']
     if pretrained:
         load_pretrained(
