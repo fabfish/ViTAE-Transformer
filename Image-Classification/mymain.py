@@ -46,7 +46,7 @@ from utils import resume_checkpoint, load_state_dict
 
 # fish:
 from myutils import monarch_to_dense_mlp_NC
-from Utils.mysamplers import my_create_loader
+# from Utils.mysamplers import my_create_loader
 from Utils.mybase import HybridValPipe, HybridTrainPipe, DALIDataloader
 
 #################################################################
@@ -282,7 +282,7 @@ parser.add_argument('--s2d', action='store_true', default=False,
                     help='whether to replace monarch with mlp')    
 parser.add_argument('--s2ddebug', action='store_true', default=False,
                     help='whether to print debug logs')                       
-parser.add_argument('--sparse_epoch', default=None, type=int, metavar='N',
+parser.add_argument('--sparse-epoch', default=None, type=int, metavar='N',
                     help='epoch to start s2d convert')
 
 parser.add_argument('--dali', action='store_true', default=False,
@@ -533,7 +533,7 @@ def main():
     #############################################################################
     ## Original train loader starts here
     #############################################################################
-    if args.dali:
+    if not args.dali:
         train_dir = os.path.join(args.data, 'train')
         if not os.path.exists(train_dir):
             _logger.error('Training folder does not exist at: {}'.format(train_dir))
