@@ -973,6 +973,51 @@ def main():
             with open(os.path.join(output_dir, 'args.yaml'), 'w') as f:
                 f.write(args_text)
         
+        try:  # s2d test
+
+            if args.distributed and args.dist_bn in ('broadcast', 'reduce'):
+                if args.local_rank == 0:
+                    _logger.info("Distributing BatchNorm running means and vars")
+                distribute_bn(model, args.world_size, args.dist_bn == 'reduce')
+
+            eval_metrics, test_epoch_time = validate(model, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast)
+
+            if model_ema is not None and not args.model_ema_force_cpu:
+                if args.distributed and args.dist_bn in ('broadcast', 'reduce'):
+                    distribute_bn(model_ema, args.world_size, args.dist_bn == 'reduce')
+                ema_eval_metrics = validate(
+                    model_ema.ema, loader_eval, validate_loss_fn, args, amp_autocast=amp_autocast, log_suffix=' (EMA)')
+                _tmp_dict = OrderedDict([('train_'+k, v) for k,v in eval_metrics.items()])
+                eval_metrics = ema_eval_metrics
+                eval_metrics.update(_tmp_dict)
+            
+            # -------------------- Wandb Log --------------------------- #
+            if args.use_wandb and args.local_rank == 0:
+                wandb.log({'lr': optimizer.param_groups[0]['lr'], 
+                            # 'train_loss': train_metrics['loss'], 
+                            'test_loss':  eval_metrics['loss'], 
+                            'top1': eval_metrics['top1'],
+                            'top5': eval_metrics['top5'], 
+                            'epoch_time': train_epoch_time, 
+                            'test_epoch_time': test_epoch_time,
+                            'param_nums': sum([m.numel() for m in model.parameters()])/1000000.0})
+            # -------------------- Wandb Log -------------------------- #
+
+            # update_summary(
+            #     epoch, train_metrics, eval_metrics, os.path.join(output_dir, 'summary.csv'),
+            #     write_header=best_metric is None)
+
+            if saver is not None:
+                # save proper checkpoint with eval metric
+                save_metric = eval_metrics[eval_metric]
+                best_metric, best_epoch = saver.save_checkpoint(epoch, metric=save_metric)
+
+        except KeyboardInterrupt:
+            pass
+        if best_metric is not None:
+            _logger.info('*** Best metric: {0} (epoch {1})'.format(best_metric, best_epoch))
+            _logger.info('*** Sparse Model Trainning Finished ')
+
         try:  # train the model
             for epoch in range(sparse_epoch, num_epochs):
                 if args.distributed:
