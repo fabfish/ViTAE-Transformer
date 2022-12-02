@@ -628,7 +628,21 @@ def main():
     else:
         train_dir = os.path.join(args.data, 'train')
         val_dir = os.path.join(args.data, 'val')
-        mixup_active = False
+        
+        collate_fn = None
+        mixup_fn = None
+        mixup_active = args.mixup > 0 or args.cutmix > 0. or args.cutmix_minmax is not None
+        if mixup_active:
+            mixup_args = dict(
+                mixup_alpha=args.mixup, cutmix_alpha=args.cutmix, cutmix_minmax=args.cutmix_minmax,
+                prob=args.mixup_prob, switch_prob=args.mixup_switch_prob, mode=args.mixup_mode,
+                label_smoothing=args.smoothing, num_classes=args.num_classes)
+            if args.prefetcher:
+                assert not num_aug_splits  # collate conflict (need to support deinterleaving in collate mixup)
+                collate_fn = FastCollateMixup(**mixup_args)
+            else:
+                mixup_fn = Mixup(**mixup_args)
+
         IMAGENET_MEAN = [0.49139968, 0.48215827, 0.44653124]
         IMAGENET_STD = [0.24703233, 0.24348505, 0.26158768]
         IMAGENET_IMAGES_NUM_TRAIN = 1281167
