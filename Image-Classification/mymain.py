@@ -48,7 +48,8 @@ from utils import resume_checkpoint, load_state_dict
 from myutils import monarch_to_dense_mlp_NC
 # from Utils.mysamplers import my_create_loader
 from Utils.mybase import HybridValPipe, HybridTrainPipe, DALIDataloader
-from nvidia.dali.plugin.pytorch import DALIGenericIterator
+# from nvidia.dali.plugin.pytorch import DALIGenericIterator
+from nvidia.dali.plugin.pytorch import DALIClassificationIterator
 
 #################################################################
 ## finish importing
