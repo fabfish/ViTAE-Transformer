@@ -48,6 +48,7 @@ from utils import resume_checkpoint, load_state_dict
 from myutils import monarch_to_dense_mlp_NC
 # from Utils.mysamplers import my_create_loader
 from Utils.mybase import HybridValPipe, HybridTrainPipe, DALIDataloader
+from nvidia.dali.plugin.pytorch import DALIGenericIterator
 
 #################################################################
 ## finish importing
@@ -647,13 +648,16 @@ def main():
             local_rank=0
         )
 
-        loader_train = DALIDataloader(
-            pipeline=pip_train, 
-            #size=IMAGENET_IMAGES_NUM_TRAIN, 
-            size=1281167,
-            batch_size=args.batch_size, 
-            onehot_label=True
-        )
+        pip_train.build()
+        loader_train = DALIClassificationIterator(pip_train, reader_name="Reader", fill_last_batch=False)
+
+        # loader_train = DALIDataloader(
+        #     pipeline=pip_train, 
+        #     #size=IMAGENET_IMAGES_NUM_TRAIN, 
+        #     size=1281167,
+        #     batch_size=args.batch_size, 
+        #     onehot_label=True
+        # )
 
         pip_test = HybridValPipe(
             batch_size=args.validation_batch_size_multiplier * args.batch_size, 
@@ -666,14 +670,16 @@ def main():
             world_size=1, 
             local_rank=0
         )
-        
-        loader_eval = DALIDataloader(
-            pipeline=pip_test, 
-            #size=IMAGENET_IMAGES_NUM_TEST, 
-            size=50000,
-            batch_size=args.validation_batch_size_multiplier * args.batch_size,
-            onehot_label=True
-        )
+        pip_test.build()
+
+        loader_eval = DALIClassificationIterator(pip_test, reader_name="Reader", fill_last_batch=False)        
+        # loader_eval = DALIDataloader(
+        #     pipeline=pip_test, 
+        #     #size=IMAGENET_IMAGES_NUM_TEST, 
+        #     size=50000,
+        #     batch_size=args.validation_batch_size_multiplier * args.batch_size,
+        #     onehot_label=True
+        # )
 
     #######################################################################
     ## finishes
