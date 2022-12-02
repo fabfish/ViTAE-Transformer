@@ -779,7 +779,8 @@ def main():
         # currently only mlp monarch 2 d is supported
         if not args.sparse_epoch:
             sparse_epoch = int(start_epoch+0.7*(num_epochs-start_epoch))
-        elif args.sparse_epoch<=num_epochs and args.sparse_epoch>=start_epoch:
+        # elif args.sparse_epoch<=num_epochs and args.sparse_epoch>=start_epoch:
+        else:
             sparse_epoch = args.sparse_epoch
 
         if args.s2ddebug:
