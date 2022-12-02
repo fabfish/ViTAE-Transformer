@@ -664,7 +664,7 @@ def main():
             batch_size=args.validation_batch_size_multiplier * args.batch_size, 
             num_threads=args.workers,
             device_id=0, 
-            data_dir=eval_dir, 
+            data_dir=val_dir, 
             # crop=data_config['crop_pct']*data_config['input_size'], 
             crop=224,
             size=VAL_SIZE, 
