@@ -34,9 +34,6 @@ import nvidia.dali.types as types
 from nvidia.dali.pipeline import Pipeline
 import torchvision.transforms as transforms
 
-
-
-
 _logger = logging.getLogger(__name__)
 
 def monarch_weight_to_dense_weight(w1_bfly, w2_bfly):

@@ -1,14 +1,5 @@
 # Copyright (c) 2015-present, Facebook, Inc.
 # All rights reserved.
-
-
-
-# deprecated temprarily 
-
-
-
-
-
 import torch
 import torch.distributed as dist
 import math
@@ -19,8 +10,6 @@ from timm.data.random_erasing import RandomErasing
 from timm.data.distributed_sampler import OrderedDistributedSampler
 import torch.utils.data
 import numpy as np
-
-from mybase import HybridTrainPipe, HybridValPipe, DALIDataloader
 
 def fast_collate(batch):
     """ A fast collation function optimized for uint8 images (np array or torch) and int64 targets (labels)"""
@@ -131,7 +120,7 @@ class PrefetchLoader:
             self.loader.collate_fn.mixup_enabled = x
 
 
-def my_create_loader(
+def create_loader(
         dataset,
         input_size,
         batch_size,
@@ -160,7 +149,6 @@ def my_create_loader(
         fp16=False,
         tf_preprocessing=False,
         use_multi_epochs_loader=False,
-        use_dali_loader=False,
         sampler=None
 ):
     re_num_splits = 0
@@ -212,55 +200,16 @@ def my_create_loader(
     if use_multi_epochs_loader:
         loader_class = MultiEpochsDataLoader
 
-    if not use_dali_loader:
-        loader = loader_class(
-            dataset,
-            batch_size=batch_size,
-            shuffle=sampler is None and is_training,
-            num_workers=num_workers,
-            sampler=sampler,
-            collate_fn=collate_fn,
-            pin_memory=pin_memory,
-            drop_last=is_training,
-        )
-
-    elif use_dali_loader:
-        pip_train = HybridTrainPipe(
-            batch_size=batch_size, 
-            num_threads=num_workers, 
-            device_id=0, 
-            data_dir=IMG_DIR+'/train', 
-            crop=224
-            world_size=1, 
-            local_rank=0
-        )
-
-        loader_train = DALIDataloader(
-            pipeline=pip_train, 
-            size=IMAGENET_IMAGES_NUM_TRAIN, 
-            batch_size=TRAIN_BS, 
-            onehot_label=True
-        )
-
-        pip_test = HybridValPipe(
-            batch_size=TEST_BS, 
-            num_threads=NUM_WORKERS, 
-            device_id=0, 
-            data_dir=IMG_DIR+'/val', 
-            crop=CROP_SIZE, 
-            size=VAL_SIZE, 
-            world_size=1, 
-            local_rank=0
-        )
-        
-        loader_eval = DALIDataloader(
-            pipeline=pip_test, 
-            size=IMAGENET_IMAGES_NUM_TEST, 
-            batch_size=TEST_BS, 
-            onehot_label=True
-        )
-
-        
+    loader = loader_class(
+        dataset,
+        batch_size=batch_size,
+        shuffle=sampler is None and is_training,
+        num_workers=num_workers,
+        sampler=sampler,
+        collate_fn=collate_fn,
+        pin_memory=pin_memory,
+        drop_last=is_training,
+    )
     if use_prefetcher:
         prefetch_re_prob = re_prob if is_training and not no_aug else 0.
         loader = PrefetchLoader(
